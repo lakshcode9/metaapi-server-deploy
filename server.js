@@ -97,10 +97,221 @@ app.post('/api/metaapi/test-connection', async (req, res) => {
   }
 });
 
+// Execute trade
+app.post('/api/metaapi/execute-trade', async (req, res) => {
+  try {
+    const { token, accountId, symbol, direction, volume, stopLoss, takeProfit } = req.body;
+    
+    if (!token || !accountId || !symbol || !direction || !volume) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Missing required fields: token, accountId, symbol, direction, volume' 
+      });
+    }
+
+    console.log(`Executing trade: ${direction} ${volume} ${symbol}`);
+    const metaApi = new MetaApi(token);
+    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    
+    // Ensure account is deployed
+    if (account.state !== 'DEPLOYED') {
+      console.log('Deploying account...');
+      await account.deploy();
+      await account.waitDeployed();
+    }
+    
+    // Connect to account
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    
+    // Execute trade based on direction
+    let result;
+    if (direction.toUpperCase() === 'BUY') {
+      result = await connection.createMarketBuyOrder(
+        symbol,
+        parseFloat(volume),
+        parseFloat(stopLoss) || undefined,
+        parseFloat(takeProfit) || undefined
+      );
+    } else if (direction.toUpperCase() === 'SELL') {
+      result = await connection.createMarketSellOrder(
+        symbol,
+        parseFloat(volume),
+        parseFloat(stopLoss) || undefined,
+        parseFloat(takeProfit) || undefined
+      );
+    } else {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Direction must be BUY or SELL' 
+      });
+    }
+    
+    console.log(`Trade executed successfully: Order ${result.orderId}`);
+    
+    res.json({ 
+      success: true,
+      result: {
+        order: result.orderId,
+        position: result.positionId,
+        status: 'executed'
+      }
+    });
+  } catch (error) {
+    console.error('Trade execution failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Trade execution failed' 
+    });
+  }
+});
+
+// Get open positions
+app.post('/api/metaapi/get-positions', async (req, res) => {
+  try {
+    const { token, accountId } = req.body;
+    
+    if (!token || !accountId) {
+      return res.status(400).json({ error: 'Token and accountId are required' });
+    }
+
+    console.log(`Fetching positions for account ${accountId}...`);
+    const metaApi = new MetaApi(token);
+    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    
+    // Ensure deployed
+    if (account.state !== 'DEPLOYED') {
+      await account.deploy();
+      await account.waitDeployed();
+    }
+    
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    
+    const positions = await connection.getPositions();
+    
+    console.log(`Found ${positions.length} open positions`);
+    
+    res.json({ 
+      success: true, 
+      positions: positions.map(pos => ({
+        id: pos.id,
+        symbol: pos.symbol,
+        type: pos.type,
+        volume: pos.volume,
+        openPrice: pos.openPrice,
+        currentPrice: pos.currentPrice,
+        profit: pos.profit,
+        swap: pos.swap,
+        commission: pos.commission,
+        stopLoss: pos.stopLoss,
+        takeProfit: pos.takeProfit,
+        time: pos.time
+      }))
+    });
+  } catch (error) {
+    console.error('Failed to fetch positions:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to fetch positions' 
+    });
+  }
+});
+
+// Close position
+app.post('/api/metaapi/close-position', async (req, res) => {
+  try {
+    const { token, accountId, positionId } = req.body;
+    
+    if (!token || !accountId || !positionId) {
+      return res.status(400).json({ 
+        error: 'Token, accountId, and positionId are required' 
+      });
+    }
+
+    console.log(`Closing position ${positionId}...`);
+    const metaApi = new MetaApi(token);
+    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    
+    const result = await connection.closePosition(positionId);
+    
+    console.log(`Position ${positionId} closed successfully`);
+    
+    res.json({ 
+      success: true,
+      result: {
+        orderId: result.orderId,
+        message: 'Position closed successfully'
+      }
+    });
+  } catch (error) {
+    console.error('Failed to close position:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to close position' 
+    });
+  }
+});
+
+// Close all positions (for kill switch)
+app.post('/api/metaapi/close-all-positions', async (req, res) => {
+  try {
+    const { token, accountId } = req.body;
+    
+    if (!token || !accountId) {
+      return res.status(400).json({ error: 'Token and accountId are required' });
+    }
+
+    console.log(`Closing all positions for account ${accountId}...`);
+    const metaApi = new MetaApi(token);
+    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    
+    const positions = await connection.getPositions();
+    const results = [];
+    
+    for (const position of positions) {
+      try {
+        const result = await connection.closePosition(position.id);
+        results.push({ positionId: position.id, success: true, orderId: result.orderId });
+      } catch (error) {
+        results.push({ positionId: position.id, success: false, error: error.message });
+      }
+    }
+    
+    console.log(`Closed ${results.filter(r => r.success).length} of ${positions.length} positions`);
+    
+    res.json({ 
+      success: true,
+      message: `Closed ${results.filter(r => r.success).length} positions`,
+      results
+    });
+  } catch (error) {
+    console.error('Failed to close all positions:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to close all positions' 
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`\n✅ MetaAPI server running on http://localhost:${PORT}`);
   console.log('\nEndpoints:');
   console.log(`  GET  /health`);
   console.log(`  POST /api/metaapi/accounts`);
-  console.log(`  POST /api/metaapi/test-connection\n`);
+  console.log(`  POST /api/metaapi/test-connection`);
+  console.log(`  POST /api/metaapi/execute-trade`);
+  console.log(`  POST /api/metaapi/get-positions`);
+  console.log(`  POST /api/metaapi/close-position`);
+  console.log(`  POST /api/metaapi/close-all-positions\n`);
 });
