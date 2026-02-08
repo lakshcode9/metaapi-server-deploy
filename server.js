@@ -1,13 +1,17 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const MetaApi = require('metaapi.cloud-sdk').default;
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Enable CORS for frontend
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Health check
 app.get('/health', (req, res) => {
