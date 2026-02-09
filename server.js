@@ -334,11 +334,11 @@ app.post('/api/metaapi/get-history', async (req, res) => {
     const historyStartTime = startTime ? new Date(startTime) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const deals = await connection.getHistoryDealsByTimeRange(historyStartTime, new Date());
     
-    console.log(`Found ${deals.deals.length} historical deals`);
+    console.log(`Found ${deals.length} historical deals`);
     
     res.json({ 
       success: true, 
-      deals: deals.deals.map(deal => ({
+      deals: deals.map(deal => ({
         id: deal.id,
         symbol: deal.symbol,
         type: deal.type,
