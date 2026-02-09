@@ -332,7 +332,7 @@ app.post('/api/metaapi/get-history', async (req, res) => {
     await connection.waitSynchronized();
     
     const historyStartTime = startTime ? new Date(startTime) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const deals = await connection.getHistoryDealsByTimeRange(historyStartTime, new Date());
+    const deals = await connection.getDealsByTimeRange(historyStartTime, new Date());
     
     console.log(`Found ${deals ? (Array.isArray(deals) ? deals.length : 'non-array') : 'no'} historical deals`);
     
