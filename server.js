@@ -334,14 +334,16 @@ app.post('/api/metaapi/get-history', async (req, res) => {
     const historyStartTime = startTime ? new Date(startTime) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const deals = await connection.getHistoryDealsByTimeRange(historyStartTime, new Date());
     
-    console.log(`Found ${deals.length} historical deals`);
+    console.log(`Found ${deals ? (Array.isArray(deals) ? deals.length : 'non-array') : 'no'} historical deals`);
+    
+    const dealsList = Array.isArray(deals) ? deals : [];
     
     res.json({ 
       success: true, 
-      deals: deals.map(deal => ({
+      deals: dealsList.map(deal => ({
         id: deal.id,
         symbol: deal.symbol,
-        type: deal.type,
+        type: deal.type || deal.entryType,
         volume: deal.volume,
         entryPrice: deal.entryPrice,
         price: deal.price,
@@ -352,7 +354,7 @@ app.post('/api/metaapi/get-history', async (req, res) => {
         platform: deal.platform,
         magic: deal.magic,
         comment: deal.comment
-      })).slice(0, limit)
+      })).slice(0, parseInt(limit))
     });
   } catch (error) {
     console.error('Failed to fetch history:', error);
