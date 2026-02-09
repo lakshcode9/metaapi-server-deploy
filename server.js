@@ -308,6 +308,61 @@ app.post('/api/metaapi/close-all-positions', async (req, res) => {
   }
 });
 
+// Get trade history
+app.post('/api/metaapi/get-history', async (req, res) => {
+  try {
+    const { token, accountId, limit = 20, startTime } = req.body;
+    
+    if (!token || !accountId) {
+      return res.status(400).json({ error: 'Token and accountId are required' });
+    }
+
+    console.log(`Fetching history for account ${accountId}...`);
+    const metaApi = new MetaApi(token);
+    const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+    
+    // Ensure deployed
+    if (account.state !== 'DEPLOYED') {
+      await account.deploy();
+      await account.waitDeployed();
+    }
+    
+    const connection = account.getRPCConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+    
+    const historyStartTime = startTime ? new Date(startTime) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const deals = await connection.getHistoryDealsByTimeRange(historyStartTime, new Date());
+    
+    console.log(`Found ${deals.deals.length} historical deals`);
+    
+    res.json({ 
+      success: true, 
+      deals: deals.deals.map(deal => ({
+        id: deal.id,
+        symbol: deal.symbol,
+        type: deal.type,
+        volume: deal.volume,
+        entryPrice: deal.entryPrice,
+        price: deal.price,
+        profit: deal.profit,
+        commission: deal.commission,
+        swap: deal.swap,
+        time: deal.time,
+        platform: deal.platform,
+        magic: deal.magic,
+        comment: deal.comment
+      })).slice(0, limit)
+    });
+  } catch (error) {
+    console.error('Failed to fetch history:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to fetch history' 
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`\n✅ MetaAPI server running on http://localhost:${PORT}`);
   console.log('\nEndpoints:');
@@ -316,6 +371,7 @@ app.listen(PORT, () => {
   console.log(`  POST /api/metaapi/test-connection`);
   console.log(`  POST /api/metaapi/execute-trade`);
   console.log(`  POST /api/metaapi/get-positions`);
+  console.log(`  POST /api/metaapi/get-history`);
   console.log(`  POST /api/metaapi/close-position`);
   console.log(`  POST /api/metaapi/close-all-positions\n`);
 });
