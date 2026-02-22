@@ -94,7 +94,7 @@ app.post('/api/metaapi/test-connection', async (req, res) => {
     });
   } catch (error) {
     console.error('Connection test failed:', error);
-    res.status(500).json({ 
+    res.status(400).json({ 
       success: false, 
       error: error.message || 'Connection test failed' 
     });
