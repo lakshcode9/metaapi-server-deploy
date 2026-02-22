@@ -72,51 +72,22 @@ app.post('/api/metaapi/test-connection', async (req, res) => {
     const metaApi = new MetaApi(token);
     const account = await metaApi.metatraderAccountApi.getAccount(accountId);
     
-    // Deploy if needed, without blocking forever
+    // Deploy if needed
     if (account.state !== 'DEPLOYED') {
-      console.log(`Account state is ${account.state}. Initiating deployment...`);
-      try {
-        await account.deploy();
-      } catch (e) {
-        console.error('Deployment initiate error (may already be deploying):', e.message);
-      }
-      return res.json({ 
-        success: true, 
-        message: 'Account valid but not fully deployed yet. Initiating deployment.',
-        balance: 0,
-        equity: 0,
-        currency: 'USD'
-      });
+      await account.deploy();
+      await account.waitDeployed();
     }
     
     // Test connection
     const connection = account.getRPCConnection();
     await connection.connect();
+    await connection.waitSynchronized();
     
-    let synchronized = false;
-    try {
-      // Prevent waitSynchronized from hanging the API
-      await Promise.race([
-        connection.waitSynchronized(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for synchronization')), 15000))
-      ]);
-      synchronized = true;
-    } catch (err) {
-      console.log('Synchronization timeout/error:', err.message);
-    }
-    
-    let accountInfo = { balance: 0, equity: 0, currency: 'USD' };
-    if (synchronized) {
-      try {
-        accountInfo = await connection.getAccountInformation();
-      } catch (infoErr) {
-        console.error('Failed to get account info:', infoErr.message);
-      }
-    }
+    const accountInfo = await connection.getAccountInformation();
     
     res.json({ 
       success: true, 
-      message: synchronized ? 'Connection successful' : 'Connected but not synchronized',
+      message: 'Connection successful',
       balance: accountInfo.balance,
       equity: accountInfo.equity,
       currency: accountInfo.currency
@@ -125,8 +96,7 @@ app.post('/api/metaapi/test-connection', async (req, res) => {
     console.error('Connection test failed:', error);
     res.status(500).json({ 
       success: false, 
-      error: error.message || 'Connection test failed',
-      details: error.toString()
+      error: error.message || 'Connection test failed' 
     });
   }
 });
